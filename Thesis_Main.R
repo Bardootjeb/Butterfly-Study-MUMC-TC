@@ -35,9 +35,12 @@ if (!requireNamespace(packages)) {
   message("Packages are already installed")
 }
 
-install.packages("lubridate")
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # Step 1. Preparatory Analysis
+
+# Set working directory
+setwd("~/Maastricht University/Biomedical Sciences/BMS year 3/BBS3006 - Thesis & Internship/Butterfly")
+# Note: This only works if you were to have the same exact working directory
 
 # Source files and require data
 source("Thesis_Functions.R")
@@ -45,14 +48,13 @@ library(readxl)
 library(lubridate)
 library(ggplot2)
 
-
 # Ensure the output directory exists
 if (!dir.exists("Output")) {
   dir.create("Output")
 }
 
 # Import data from excel file and transform data into dataframe
-weekdays <- read_excel("RH TEMP.xlsx")
+weekdays <- read_excel("HOLDING.xlsx")
 weekdays <- as.data.frame(weekdays)
 weekdays$Day <- as.factor(weekdays$Day)
 
@@ -60,40 +62,68 @@ weekdays$Day <- as.factor(weekdays$Day)
 titles <- c("RH Max (%)", "Temp Max (°C)", "RH Min (%)", "Temp Min (°C)")
 weekdays[titles] <- lapply(weekdays[titles], 
                           function(x) as.numeric(gsub(",", ".", gsub(" ", "", x))))
-# Extract numeric values from the dataframe
-RH_Temp <- weekdays[3:6]
+
+# Create new values: RH_Mean and range
+weekdays$RH_Mean <- (weekdays$`RH Max (%)` + weekdays$`RH Min (%)`) / 2
+weekdays$RH_Range <- weekdays$`RH Max (%)` - weekdays$`RH Min (%)`
+
+# Create new values: Temperature mean and range
+weekdays$Temp_Mean <- (weekdays$`Temp Max (°C)` + weekdays$`Temp Min (°C)`) / 2
+weekdays$Temp_Range <- weekdays$`Temp Max (°C)` - weekdays$`Temp Min (°C)`
+
+# Extract numeric values from the dataframe 
+RH_Temp <- weekdays[3:11]
 # Summary statistics
 summary(RH_Temp) 
-# Calculate the SDs
-SD <- sapply(RH_Temp, sd, na.rm = TRUE)
 
 # Rename collumn name
 names(weekdays)[names(weekdays) == "Time of day"] <- "Time.of.Day"
-# Turn "Time of Day" from character into a factor of time
-weekdays$Time.of.Day <- hms::as_hms(weekdays$Time.of.Day)
+
+# Transforming the data to fit analysis
+weekdays$Time.Category <- cut(
+  as.numeric(hms::as_hms(weekdays$Time.of.Day)), # Turn "Time of Day" from 
+  #character into a factor of time and then into numeric data
+  breaks = c(0, 10*3600, 14*3600, 24*3600),  # 0-10h, 10-14h, 14-24h
+  labels = c("08", "12", "16"), # create three categories
+  include.lowest = TRUE, right = FALSE
+)
+
+
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# Step 2. Plot the RH and temperature range using the plot_range function 
+# & save to PDF using the save.pdf function.
+
+## The functions can be found in the "Thesis_Functions.R" file
 
 save.pdf(function(){
 }, "Gene Expression")
 
 # Plot the RH
-plot_range(weekdays, "RH Max (%)", "RH Min (%)", "Relative Humidity (%)", 
-           "Relative Humidity Max and Min per Measurement")
-
+plot_range(weekdays, "RH_Mean", "Mean Relative Humidity", 
+           "Relative Humidity Range per Measurement")
 # Plot the temp
-plot_range(weekdays, "Temp Max (°C)", "Temp Min (°C)", "Temperature (°C)", 
-           "Temperature Max and Min per Measurement")
+plot_range(weekdays, "Temp_Mean", "Mean Temperature", 
+           "Temperature Range per Measurement")
 
-weekdays$Time.Category <- cut(
-  as.numeric(weekdays$Time.of.Day),
-  breaks = c(0, 10*3600, 14*3600, 24*3600), # in seconds
-  labels = c("08", "12", "16"),
-  include.lowest = TRUE, right = FALSE
-)
+# Old function. Im keeping it for now to see the trend per day
 
+# Plot the RH
+plot_range2(weekdays, "RH Max (%)", "RH Min (%)", "Relative Humidity (%)",
+             "Relative Humidity Range per Measurement")
+# Plot the temp
+plot_range2(weekdays, "Temp Max (°C)", "Temp Min (°C)", "Temperature (°C)", 
+           "Temperature Range per Measurement")
+
+
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# Step 3. Statistical Analysis
+
+# Create table to check if every data point has a value = 1
 table(weekdays$Time.Category, weekdays$Day)
 
-friedman.test(`RH Max (%)` ~ Time.Category | Day, data = weekdays)
-
+# I'm aiming for 14 days of results, but in the meantime, I will have to use this
+# test, which works with smaller data sets
+friedman.test(`RH_Mean` ~ Time.Category | Day, data = weekdays)
 
 # For RH Max
 aov_max <- aov(`RH Max (%)` ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
@@ -103,10 +133,28 @@ summary(aov_max)
 aov_min <- aov(`RH Min (%)` ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
 summary(aov_min)
 
-weekdays$RH_Range <- weekdays$`RH Max (%)` - weekdays$`RH Min (%)`
+# For RH Range
 aov_range <- aov(RH_Range ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
 summary(aov_range)
 
-weekdays$RH_Mean <- (weekdays$`RH Max (%)` + weekdays$`RH Min (%)`) / 2
+# For RH Mean
 aov_mean <- aov(RH_Mean ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
 summary(aov_mean)
+
+# Now we do the same for the temperature
+
+# Testing the changes for Temp
+friedman.test(Temp_Mean ~ Time.Category | Day, data = weekdays)
+
+# And repeating the steps for temperature
+aov_temp_max <- aov(`Temp Max (°C)` ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
+summary(aov_temp_max)
+
+aov_temp_min <- aov(`Temp Min (°C)` ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
+summary(aov_temp_min)
+
+aov_temp_mean <- aov(Temp_Mean ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
+summary(aov_temp_mean)
+
+aov_temp_range <- aov(Temp_Range ~ Time.of.Day + Error(Day/Time.of.Day), data = weekdays)
+summary(aov_temp_range)

@@ -15,7 +15,18 @@ save.pdf <- function(plot_function, filename) {
 }
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-plot_range <- function(data, max_col, min_col, y_label, plot_title) {
+plot_range <- function(data, value_col, y_label, plot_title) {
+  ggplot(data, aes(x = Time.Category, y = .data[[value_col]])) +
+    geom_boxplot(fill = "skyblue", alpha = 0.7) +
+    labs(
+      title = plot_title,
+      x = "Time of Day",
+      y = y_label
+    ) +
+    theme_minimal()
+}
+
+plot_range2 <- function(data, max_col, min_col, y_label, plot_title) {
   ggplot(data, aes(x = Time.of.Day, group = Day, color = Day)) +
     geom_line(aes(y = .data[[max_col]]), size = 1) +
     geom_point(aes(y = .data[[max_col]])) +
