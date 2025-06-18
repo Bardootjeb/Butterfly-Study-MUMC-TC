@@ -25,7 +25,7 @@
 # Use the following command to install missing packages automatically.
 
 # Create a vector containing the required packages. Check if installed and if not, install.
-packages <- c("readxl", "dplyr", "pROC","writexl")
+packages <- c("readxl", "dplyr", "pROC","writexl", "effsize")
 installed <- packages %in% rownames(installed.packages())
 if (any(!installed)) {
   install.packages(packages[!installed])
@@ -53,6 +53,7 @@ library(readxl)                         # For reading Excel files (.xlsx)
 library(dplyr)                          # For data manipulation (e.g., filtering, mutating)
 library(pROC)                           # For ROC curve analysis
 library(writexl)                        # For writing Excel files (.xlsx)
+library(effsize)                        # To calculate effect sizes like Cohen's d
 
 # Load Excel spreadsheet with patient metadata and breath VOC intensities 
 # and turn into dataframe
@@ -132,7 +133,7 @@ ROCClassAnalysis("Breath_Metadata.xlsx", "Breath_RCA.xlsx")
 results <- read_excel("Breath_RCA.xlsx")
 # Filter the results based on Youden Index > 0.3 and Specificity >= 0.65
 # This selects markers with moderate discriminatory power and acceptable specificity
-filtered <- results[results$Youden_Index > 0.3 & results$Specificity >= 0.65, ]
+filtered <- results[results$Youden_Index > 0.3 & results$Specificity >= 0.7, ]
 # Remove any rows where the 'Class' column contains NA values
 # Ensures only valid class labels are included for downstream analysis
 filtered <- filtered[!is.na(filtered$Class), ]
@@ -144,33 +145,36 @@ print(filtered)
 write_xlsx(filtered, "Final Areas.xlsx")
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-# Step 4. Evaluation of potential confounding effects
+# Step 4. Evaluation of Potential Confounding Effects
 
-# This function assesses whether the top discriminatory markers (areas/VOCs) identified
-# might be influenced by potential confounding variables. It takes two Excel files as input:
-# - full_data_path: a dataset including all patients with binary-coded confounders and factor variables
-# - top_areas_path: the selected top markers (areas) from prior ROC analysis
+# This function evaluates whether the top discriminatory markers (areas/VOCs), previously identified,
+# are potentially influenced by confounding variables present in the dataset. It requires two Excel input files:
+# - full_data_path: a dataset containing all subjects, including binary-coded confounders and factor variables
+# - top_areas_path: the selected top markers (areas) obtained from prior ROC analysis
 
-# For each grouping variable identified by the suffix "_bin" or factor type, 
-# the function tests whether the distribution of each selected marker differs significantly 
+# For each grouping variable detected by the suffix "_bin" or as a factor,
+# the function tests if the distributions of each selected marker differ significantly
 # across the groups defined by the potential confounder.
 
-# Depending on the number of groups and data normality, it chooses appropriate statistical tests:
-# - For two groups: t-test (if normal) or Wilcoxon rank-sum test (if non-normal)
-# - For more than two groups: ANOVA (if normal) or Kruskal-Wallis test (if non-normal)
+# Depending on the number of groups and the normality of data distribution, appropriate statistical tests are applied:
+# - Two groups: two-sample t-test (if normally distributed) or Wilcoxon rank-sum test (if non-normal)
+# - More than two groups: ANOVA (if normally distributed) or Kruskal-Wallis test (if non-normal)
 
-# It outputs an Excel file with separate sheets per confounder group summarizing:
-# - The statistical test used
-# - p-values for differences in marker distributions between groups
-# - Whether the difference is statistically significant (p < 0.05)
-# - Whether the data passed normality assumptions
+# The output is an Excel file with separate sheets for each confounder group, summarizing:
+# - The statistical test used for each marker-confounder pair
+# - P-values assessing group differences in marker distributions
+# - Significance indication based on p < 0.05 threshold
+# - Normality assessment of the marker distributions within groups
 
-# This helps identify markers potentially influenced by confounders, guiding further interpretation.
+# This analysis assists in identifying markers potentially affected by confounders, 
+# thus informing interpretation and subsequent analysis steps.
+
 ConfounderEffectAnalysis(
   full_data_path = "Breath_Metadata.xlsx",
   top_areas_path = "Final Areas.xlsx",
   output_file = "Breath_CEA.xlsx"
 )
+
 # ==============================================================================
 # End of script
 print("All analyses completed successfully.")

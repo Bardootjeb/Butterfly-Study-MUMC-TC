@@ -170,143 +170,180 @@ ROCClassAnalysis <- function(file_path, file_name) {
 # -----------------------------------
 # Function: ConfounderEffectAnalysis
 # -----------------------------------
-# Evaluates if selected VOC markers (areas) differ significantly across levels of
-# potential confounding variables.
+# Evaluates whether selected VOC markers (areas) differ significantly across levels 
+# of potential confounders using appropriate tests based on group number and normality.
 #
 # Inputs:
-# - full_data_path: Excel file with full dataset (binary-coded confounders + numeric areas)
-# - top_areas_path: Excel file with selected top markers (areas) from ROC analysis
-# - output_file: name of output Excel file for confounder analysis results
+# - full_data_path: path to Excel file containing full dataset (confounders + numeric areas)
+# - top_areas_path: path to Excel file with selected top markers (areas) to test
+# - output_file: filename for saving the results as Excel sheets
 #
-# For each confounder grouping variable ending in "_bin" or factor,
-# performs appropriate tests based on group count and normality:
-# - Two groups: t-test (normal) or Wilcoxon rank-sum (non-normal)
-# - Multiple groups: ANOVA (normal) or Kruskal-Wallis (non-normal)
-#
-# Saves results as Excel sheets per confounder.
+# For each grouping variable (ending with "_bin" or factor), this function:
+# - Tests normality within groups (Shapiro-Wilk test)
+# - Performs t-test/Wilcoxon for two groups; ANOVA/Kruskal-Wallis for multiple groups
+# - Computes p-values and flags significance
+# - Saves results to Excel with one sheet per confounder variable
 ConfounderEffectAnalysis <- function(full_data_path, top_areas_path, output_file) {
   
-  # Load the full dataset with potential confounders
+  # Read full dataset (with confounders and area values)
   full_data <- read_excel(full_data_path)
-  # Load top markers (areas)
+  # Read top areas/markers identified for testing
   top_markers <- read_excel(top_areas_path)
   # Extract unique area names from top markers
   selected_areas <- unique(top_markers$Area)
-  # Identify confounder grouping variables: those ending with '_bin' or factor type
+  
+  # Identify grouping variables by either factor type or names ending with '_bin'
   grouping_vars <- names(full_data)[grepl("_bin$", names(full_data)) | sapply(full_data, is.factor)]
   
-  # Error if no grouping variables found
-  if (length(grouping_vars) == 0) {
-    stop("No grouping variables ending in '_bin' or factors found.")
-  }
+  # Stop execution if no suitable grouping variables found
+  if (length(grouping_vars) == 0) stop("No grouping variables ending in '_bin' or factors found.")
   
-  all_results <- list()  # Store results per confounder group
+  all_results <- list()  # Initialize list to hold results per confounder
   
-  # Loop through each grouping variable (potential confounder)
+  # Loop over each grouping variable (potential confounder)
   for (group in grouping_vars) {
     
-    # Prepare empty data frame to store test results for current (potential) confounder
-    group_results <- data.frame(
-      Area = character(),
-      Group = character(),
-      Test = character(),
-      P_Value = numeric(),
-      Significant = character(),
-      Normal_Distribution = character(),
-      stringsAsFactors = FALSE
-    )
-    
-    # Extract the values of the current grouping variable (e.g., age_bin, sex_bin) from the dataset
+    # Extract values of the current grouping variable
     group_vals <- full_data[[group]]
     
-    # Skip confounder if less than 2 unique groups present
+    # Skip if fewer than two unique groups exist (no meaningful test)
     if (length(unique(na.omit(group_vals))) < 2) next
     
-    # Test each selected area (marker) for differences across groups
+    results_list <- list()  # Initialize storage for test results per area for this group
+    
+    # Loop through each selected VOC marker area
     for (area in selected_areas) {
       
-      # Skip if area not in full dataset
+      # Skip area if not found in dataset columns
       if (!(area %in% names(full_data))) {
         warning(paste("Skipping", area, "- not found in full dataset"))
         next
       }
       
-      # Extract the values of the current VOC marker (area) from the dataset for 
-      # statistical testing
+      # Extract predictor values for the area
       predictor <- full_data[[area]]
-      
-      # Skip non-numeric predictors
+      # Continue only if predictor is numeric
       if (!is.numeric(predictor)) next
       
-      # Remove missing values
+      # Create subset dataframe with non-missing group and predictor values
       df_subset <- na.omit(data.frame(group = group_vals, predictor = predictor))
       
-      # Skip if fewer than 6 observations remain
+      # Skip analysis if fewer than 6 observations remain
       if (nrow(df_subset) < 6) next
       
-      # Identify the unique groups or categories within the current (potential) 
-      # confounder variable (e.g., sex_bin, age_bin)
+      # Identify unique groups within this confounder variable
       group_levels <- unique(df_subset$group)
       
-      
-      # Check normality for each group using Shapiro-Wilk test
+      # Test normality for each group using Shapiro-Wilk test
       normality <- sapply(group_levels, function(g) {
         vals <- df_subset$predictor[df_subset$group == g]
-        if (length(vals) < 3) return(NA)  # Not enough data for test
-        shapiro.test(vals)$p.value > 0.05
+        # Skip normality test if fewer than 3 observations in group
+        if (length(vals) < 3) return(NA)
+        shapiro.test(vals)$p.value > 0.05  # TRUE if data is normal
       })
       
-      # Determine if all groups within the current confounder variable follow a normal distribution
-      # This will inform whether to use parametric (e.g., t-test, ANOVA) or non-parametric tests
+      # Determine if all groups are normally distributed (ignoring NAs)
       all_normal <- all(normality == TRUE, na.rm = TRUE)
       
-      # Initialize placeholders for the type of statistical test and the resulting p-value
-      test_type <- NA  # Will store which test is used (e.g., "t-test", "Wilcoxon", etc.)
-      p_val <- NA      # Will store the computed p-value from the test
+      # Initialize placeholders for test metadata and results
+      test_type <- effect_label <- NA
+      p_val <- test_stat <- effect_size <- NA
       
-      # Choose test based on number of groups and normality
+      # Choose appropriate statistical test based on group count and normality
       if (length(group_levels) == 2) {
         if (all_normal) {
+          # Two groups, normal data: independent two-sample t-test
           test_type <- "t-test"
-          p_val <- t.test(predictor ~ group, data = df_subset)$p.value
+          test <- t.test(predictor ~ group, data = df_subset)
+          p_val <- test$p.value
+          test_stat <- unname(test$statistic)
+          # Compute Cohen's d effect size (parametric)
+          d <- cohen.d(df_subset$predictor, df_subset$group)
+          effect_size <- unname(d$estimate)
+          effect_label <- "Cohen_d"
         } else {
+          # Two groups, non-normal data: Wilcoxon rank-sum test
           test_type <- "Wilcoxon"
-          p_val <- wilcox.test(predictor ~ group, data = df_subset)$p.value
+          test <- wilcox.test(predictor ~ group, data = df_subset)
+          p_val <- test$p.value
+          test_stat <- unname(test$statistic)
+          # Nonparametric effect size with Cohen's d alternative
+          d <- cohen.d(df_subset$predictor, df_subset$group, nonparam = TRUE)
+          effect_size <- unname(d$estimate)
+          effect_label <- "Cohen_d (nonparam)"
         }
       } else {
+        # More than two groups
         if (all_normal) {
+          # Parametric ANOVA for normal data
           test_type <- "ANOVA"
-          p_val <- summary(aov(predictor ~ group, data = df_subset))[[1]][["Pr(>F)"]][1]
+          model <- aov(predictor ~ group, data = df_subset)
+          p_val <- summary(model)[[1]][["Pr(>F)"]][1]
+          anova_table <- anova(model)
+          test_stat <- anova_table[[1]][1]
+          ss_total <- sum(anova_table[[1]][, "Sum Sq"])
+          ss_between <- anova_table[["Sum Sq"]][1]
+          # Eta-squared effect size: variance explained by group
+          effect_size <- ss_between / ss_total
+          effect_label <- "Eta_squared"
         } else {
+          # Nonparametric Kruskal-Wallis test for non-normal data
           test_type <- "Kruskal-Wallis"
-          p_val <- kruskal.test(predictor ~ group, data = df_subset)$p.value
+          test <- kruskal.test(predictor ~ group, data = df_subset)
+          p_val <- test$p.value
+          test_stat <- unname(test$statistic)
+          H <- test_stat
+          k <- length(group_levels)
+          n <- nrow(df_subset)
+          # Eta-squared effect size estimate for Kruskal-Wallis
+          effect_size <- (H - k + 1) / (n - k)
+          effect_label <- "KW_Eta2"
         }
       }
       
-      # Append results for current area-group test
-      group_results <- rbind(group_results, data.frame(
-        Area = area,
-        Group = group,
-        Test = test_type,
-        P_Value = round(p_val, 5),
-        Significant = ifelse(!is.na(p_val) & p_val < 0.05, "Yes", "No"),
-        Normal_Distribution = ifelse(all_normal, "Yes", "No"),
-        stringsAsFactors = FALSE
-      ))
+      # Create clean group name by removing trailing "_bin" and converting to Title Case
+      name <- gsub("_bin$", "", group)
+      name <- tools::toTitleCase(nice_group_name)
       
-      # Print test summary to console
-      cat(area, "vs", group, "→", test_type, "| p =", round(p_val, 4), "\n")
+      # Store current test result as a named list with dynamic column names for stats/effect sizes
+      this_result <- list(
+        Area = area,
+        Group = name,
+        Test = test_type,
+        P_Value = round(p_val, 5)
+      )
+      this_result[[paste0(test_type, "_statistic")]] <- round(test_stat, 5)
+      this_result[[effect_label]] <- round(effect_size, 5)
+      
+      # Append this result to the results list for current grouping variable
+      results_list[[length(results_list) + 1]] <- this_result
+      
+      # Print concise summary to console for progress monitoring
+      cat(area, "vs", name, "→", test_type, "| p =", round(p_val, 5), 
+          "|", paste0(test_type, "_statistic"), "=", round(test_stat, 5), 
+          "|", effect_label, "=", round(effect_size, 5), "\n")
     }
     
-    # Save results per confounder if any tests were performed
-    if (nrow(group_results) > 0) {
-      all_results[[group]] <- group_results
+    # After looping all areas, combine results to data frame if any exist
+    if (length(results_list) > 0) {
+      df_results <- do.call(rbind, lapply(results_list, function(x) as.data.frame(x, stringsAsFactors = FALSE)))
+      
+      # Convert numeric-looking columns from character to numeric explicitly
+      for (col in names(df_results)) {
+        if (all(is.na(df_results[[col]]) | grepl("^[0-9\\.]+$", df_results[[col]]))) {
+          df_results[[col]] <- as.numeric(df_results[[col]])
+        }
+      }
+      
+      # Store final results data frame for this grouping variable in output list
+      all_results[[group]] <- df_results
     }
   }
   
-  # Write all confounder test results to separate sheets in an Excel file
+  # Write all confounder test results to Excel, one sheet per confounder
   write_xlsx(all_results, output_file)
-  # Return a confirmation message with the output file path
+  
+  # Return confirmation message with output file path
   return(paste("Confounder effect analysis complete. Results saved to:", output_file))
 }
 # ==============================================================================
