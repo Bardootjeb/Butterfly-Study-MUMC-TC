@@ -91,12 +91,12 @@ rawdata$bmi_bin <- cut(
 ) # Factor column `bmi_bin` with levels 1–3
 
 # Recode Age to ordinal bins by decade (starting from <30)
-#   1 = 0–29, 2 = 30–39, ..., 8 = 90+
+#   1 = 0–24, 2 = 25–34, ..., 6 = 65+
 age_bin <- which(names(rawdata) == "age")  # Find index of "age" column
 rawdata$age_bin <- cut(
   rawdata$age,
-  breaks = c(0, 29, 39, 49, 59, 69, 79, 89, Inf),
-  labels = 1:8,
+  breaks = c(0, 24, 34, 44, 54, 64, Inf),
+  labels = 1:6,
   right = TRUE,
   include.lowest = TRUE
 ) # Factor column `age_bin` with levels 1–8 (age groups by decade)
@@ -130,21 +130,16 @@ ROCClassAnalysis("Breath_Metadata.xlsx", "Breath_RCA.xlsx")
 
 # Load ROC results from Excel file into a data frame called 'results'
 results <- read_excel("Breath_RCA.xlsx")
-
 # Filter the results based on Youden Index > 0.3 and Specificity >= 0.65
 # This selects markers with moderate discriminatory power and acceptable specificity
 filtered <- results[results$Youden_Index > 0.3 & results$Specificity >= 0.65, ]
-
 # Remove any rows where the 'Class' column contains NA values
 # Ensures only valid class labels are included for downstream analysis
 filtered <- filtered[!is.na(filtered$Class), ]
-
 # Sort the filtered results by Youden Index in descending order
 filtered <- filtered[order(-filtered$Youden_Index), ]
-
 # Print the sorted filtered results to the console
 print(filtered)
-
 # Save the sorted filtered results to an Excel file
 write_xlsx(filtered, "Final Areas.xlsx")
 
